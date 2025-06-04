@@ -1283,9 +1283,6 @@ class TestGroupedDense:
     @pytest_parametrize_wrapper("scaling_mode", supported_scaling_modes)
     @pytest_parametrize_wrapper("layout", ["NN"])
     def test_grouped_gemm_fp8(self, fwd_bwd_dtype, scaling_mode, input_shape, layout):
-        if scaling_mode == ScalingMode.MXFP8_1D_SCALING:
-            pytest.skip("MXFP8 is not supported in grouped_gemm yet")
-
         fwd_dtype, bwd_dtype = fwd_bwd_dtype
         quantizer_set = QuantizerFactory.create_set(
             scaling_mode=scaling_mode,
@@ -1361,9 +1358,6 @@ class TestGroupedDense:
     )
     @pytest_parametrize_wrapper("scaling_mode", supported_scaling_modes)
     def test_grouped_dense_grad_fp8(self, fwd_bwd_dtype, scaling_mode, input_shape):
-        if scaling_mode == ScalingMode.MXFP8_1D_SCALING:
-            pytest.skip("MXFP8 is not supported in grouped_dense yet")
-
         fwd_dtype, bwd_dtype = fwd_bwd_dtype
         dtype = jnp.bfloat16
         x, kernel, group_sizes, contracting_dims, bias = self._generate_grouped_dense_input(

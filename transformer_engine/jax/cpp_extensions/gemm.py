@@ -490,7 +490,8 @@ def grouped_gemm(
             # and is_gemm_with_all_layouts_supported()
             scaling_mode.is_1d_block_scaling()
         ):
-            lhs_is_rowwise = rhs_is_rowwise = True
+            lhs_is_rowwise = True
+            rhs_is_rowwise = False
         else:
             lhs_is_rowwise = not lhs_is_trans
             rhs_is_rowwise = lhs_is_trans
@@ -551,9 +552,6 @@ def grouped_gemm(
     has_bias = bias is not None
     assert not has_bias or bias.shape == (group_sizes.size, N)
     bias = jnp.empty((), jnp.float32) if bias is None else bias
-
-    # TODO(Phuong): support MXFP8_1D_SCALING
-    assert scaling_mode != ScalingMode.MXFP8_1D_SCALING, "MXFP8_1D_SCALING is not yet supported"
 
     (out,) = GroupedGemmPrimitive.outer_primitive.bind(
         lhs_data,
