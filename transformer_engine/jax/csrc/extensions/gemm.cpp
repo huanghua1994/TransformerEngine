@@ -164,6 +164,9 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
   size_t lhs_sinv_total_size = 0;
   size_t rhs_sinv_total_size = 0;
 
+  std::vector<void *> zero_out_dptr_list;
+  std::vector<size_t> zero_out_size_list;
+
   for (size_t i = 0; i < num_gemms; i++) {
     // Matrix data shapes
     size_t m_i = dim_list_host[i];
@@ -178,6 +181,15 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
       rhs_shape_i[1] = rhs_is_trans ? k_i : n;
       out_shape_i[0] = m;
       out_shape_i[1] = n;
+    }
+
+    size_t lhs_size = lhs_shape_i[0] * lhs_shape_i[1];
+    size_t rhs_size = rhs_shape_i[0] * rhs_shape_i[1];
+    size_t out_size = out_shape_i[0] * out_shape_i[1];
+    bool is_empty_gemm = lhs_size == 0 || rhs_size == 0;
+    if (is_empty_gemm && out_size > 0) {
+      zero_out_dptr_list.push_back(out_ptr);
+      zero_out_size_list.push_back(out_size * out_dtype_bytes);
     }
 
     // Set matrix data pointers
@@ -202,8 +214,11 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
     size_t rhs_sinv_size_i = 0;
     if (is_tensor_scaling) {
       auto tensor_scaling_sinv_shape = std::vector<size_t>{1};
-      lhs_sinv_size_i = 1;
-      rhs_sinv_size_i = 1;
+      // If is_empty_gemm, scale_inv does not have the corresponding value, do not move the pointers
+      if (!is_empty_gemm) {
+        lhs_sinv_size_i = 1;
+        rhs_sinv_size_i = 1;
+      }
       if (rhs_use_colwise)  // MatA to enter cuBLAS
         rhs_i.set_columnwise_scale_inv(rhs_sinv_vptr, rhs_sinv_dtype, tensor_scaling_sinv_shape);
       else
@@ -221,6 +236,7 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
 
       // {lhs, rhs}_swizzle_i point to unswizzled scale_inv data as input, while {lhs, rhs}_i
       // point to swizzled scale_inv data (store on workspace, only used for GEMM).
+      // Note: even if is_empty_gemm is true, sinv are still non-empty, need to move the pointers
       auto lhs_sinv_shape_i = get_mxfp8_scale_shape(lhs_shape_i[0], lhs_shape_i[1], lhs_use_colwise);
       auto rhs_sinv_shape_i = get_mxfp8_scale_shape(rhs_shape_i[0], rhs_shape_i[1], rhs_use_colwise);
       lhs_sinv_size_i = lhs_sinv_shape_i[0] * lhs_sinv_shape_i[1];
@@ -246,10 +262,12 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
         rhs_i.set_rowwise_scale_inv(swizzled_rhs_sinv_vptr, rhs_sinv_dtype, rhs_sinv_shape_i);
       }
 
-      lhs_swizzle_wrapper_list.push_back(std::move(lhs_swizzle_i));
-      rhs_swizzle_wrapper_list.push_back(std::move(rhs_swizzle_i));
-      lhs_swizzle_list.push_back(lhs_swizzle_wrapper_list.back().data());
-      rhs_swizzle_list.push_back(rhs_swizzle_wrapper_list.back().data());
+      if (!is_empty_gemm) {
+        lhs_swizzle_wrapper_list.push_back(std::move(lhs_swizzle_i));
+        rhs_swizzle_wrapper_list.push_back(std::move(rhs_swizzle_i));
+        lhs_swizzle_list.push_back(lhs_swizzle_wrapper_list.back().data());
+        rhs_swizzle_list.push_back(rhs_swizzle_wrapper_list.back().data());
+      }
     }
     else {
       NVTE_CHECK(scaling_mode == JAXX_Scaling_Mode::NO_SCALING,
@@ -260,9 +278,9 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
     auto pre_gelu_i = TensorWrapper(nullptr, std::vector<size_t>{0}, out_dtype);
 
     // Update pointer for the next GEMM pair
-    lhs_ptr += lhs_shape_i[0] * lhs_shape_i[1] * lhs_dtype_bytes;
-    rhs_ptr += rhs_shape_i[0] * rhs_shape_i[1] * rhs_dtype_bytes;
-    out_ptr += out_shape_i[0] * out_shape_i[1] * out_dtype_bytes;
+    lhs_ptr += lhs_size * lhs_dtype_bytes;
+    rhs_ptr += rhs_size * rhs_dtype_bytes;
+    out_ptr += out_size * out_dtype_bytes;
     if (is_fp8_gemm) {
       lhs_sinv_ptr += lhs_sinv_size_i * lhs_sinv_dtype_bytes;
       rhs_sinv_ptr += rhs_sinv_size_i * rhs_sinv_dtype_bytes;
@@ -276,6 +294,7 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
     if (has_bias) bias_ptr += n * bias_dtype_bytes;
 
     // Move objects to the lists to keep them alive
+    if (is_empty_gemm) continue;
     lhs_wrapper_list.push_back(std::move(lhs_i));
     rhs_wrapper_list.push_back(std::move(rhs_i));
     out_wrapper_list.push_back(std::move(out_i));
@@ -305,8 +324,10 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
                rhs_sinv_total_size, " exceeds estimated upper bound ", rhs_sinv_size);
   }
 
+  size_t num_non_empty_gemms = lhs_list.size();
+
   if (is_mxfp8_scaling) {
-    for (int i = 0; i < num_gemms; i++) {
+    for (int i = 0; i < num_non_empty_gemms; i++) {
       // The i-th GEMM will use the (i % num_streams)-th stream to compute,
       // use the same stream to swizzle the scaling factors to make sure that
       // the swizzling is done before the GEMM computation starts.
@@ -317,10 +338,20 @@ Error_Type GroupedGemmFFI(cudaStream_t stream, Buffer_Type lhs_data, Buffer_Type
     }
   }
 
+  // Launch zero-out kernels before the GEMM calls to use the sync in the multi-stream GEMM
+  size_t num_zero_outs = zero_out_dptr_list.size();
+  for (int i = 0; i < num_zero_outs; i++) {
+    int stream_id = i % num_streams;
+    cudaStream_t stream_i = nvte_get_compute_stream(stream_id);
+    void *dptr = zero_out_dptr_list[i];
+    size_t count = zero_out_size_list[i];
+    NVTE_CHECK_CUDA(cudaMemsetAsync(dptr, 0, count, stream_i));
+  }
+
   nvte_multi_stream_cublas_gemm(rhs_list.data(), lhs_list.data(), out_list.data(), bias_list.data(),
-                                pre_gelu_list.data(), num_gemms, rhs_is_trans, lhs_is_trans, grad,
-                                workspace_list.data(), accumulate, use_split_accumulator,
-                                num_math_sm, stream);
+                                pre_gelu_list.data(), num_non_empty_gemms, rhs_is_trans,
+                                lhs_is_trans, grad, workspace_list.data(), accumulate,
+                                use_split_accumulator, num_math_sm, stream);
 
   return ffi_with_cuda_error_check();
 }

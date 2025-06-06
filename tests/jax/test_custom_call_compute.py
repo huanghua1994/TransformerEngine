@@ -1242,6 +1242,9 @@ class TestGroupedDense:
         group_sizes = jnp.sort(jax.random.randint(subkeys[0], (n_groups - 1,), 0, m))
         group_sizes = jnp.concatenate([jnp.array([0]), group_sizes, jnp.array([m])])
         group_sizes = jnp.diff(group_sizes)
+        # Make one empty input lhs to test empty GEMM handling
+        group_sizes = group_sizes.at[0].set(group_sizes[0] + group_sizes[1])
+        group_sizes = group_sizes.at[1].set(0)
         assert group_sizes.sum() == m
 
         # *32 to make sure that input shape works for MXFP8
