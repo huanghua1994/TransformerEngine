@@ -913,6 +913,73 @@ class FusedAttnRunner:
                 target_hlo = jitted_primitive.lower(*customcall_args).compile().as_text()
             assert_equal_collectives(target_hlo, self.coll_count_ref)
 
+    def bench_forward(self, num_tests=1):
+        """
+        Test forward with JIT
+        """
+
+        import time
+
+        setup_input_t0 = time.time()
+        self._setup_inputs()
+        setup_input_t1 = time.time()
+        print(f"Setup inputs time: {setup_input_t1 - setup_input_t0:.3f} seconds")
+
+        customcall_args = [
+            # Put test data onto each GPU for distributed.
+            # TODO(mgoldfarb-nvidia): We will need to add reordering for bias, mas and
+            # THD params once we support those features on CP.
+            jax.device_put(self.cp_reorder_fn(self.q), self.qkvo_sharding),
+            jax.device_put(self.cp_reorder_fn(self.k), self.qkvo_sharding),
+            jax.device_put(self.cp_reorder_fn(self.v), self.qkvo_sharding),
+            jax.device_put(self.bias, self.bias_sharding),
+            jax.device_put(self.sequence_desciptor, self.seq_desc_sharding),
+            jax.device_put(self.dropout_rng, self.dropout_rng_sharding),
+        ]
+        kwargs = {
+            "attn_bias_type": self.attn_bias_type,
+            "attn_mask_type": self.attn_mask_type,
+            "scaling_factor": self.scaling_factor,
+            "dropout_probability": self.dropout_prob,
+            "is_training": self.is_training,
+            "qkv_layout": self.qkv_layout,
+            "max_segments_per_seq": self._get_max_segments_per_sequence(),
+            "window_size": self.window_size,
+            "context_parallel_strategy": self.cp_strategy,
+            "context_parallel_causal_load_balanced": self.cp_load_balanced,
+        }
+
+        jit_t0 = time.time()
+        customcall_fused_dpa_jit = jit(
+            partial(customcall_fused_dpa, **kwargs),
+            static_argnames=kwargs.keys(),
+            in_shardings=[
+                self.qkvo_sharding,
+                self.qkvo_sharding,
+                self.qkvo_sharding,
+                self.bias_sharding,
+                self.seq_desc_sharding,
+                self.dropout_rng_sharding,
+            ],
+        )
+        jit_t1 = time.time()
+        print(f"JIT compile time: {jit_t1 - jit_t0:.3f} seconds")
+
+        import nvtx
+        for i in range(num_tests):
+            print(f"Running test {i + 1}/{num_tests}...")
+            prim_t0 = time.time()
+            range1 = nvtx.start_range(message=f"Jitted call {i}")
+            with self.mesh, fp8_autocast(mesh_resource=self.mesh_resource):
+                primitive_out = customcall_fused_dpa_jit(*customcall_args)
+                primitive_out = self.cp_inverse_reorder_fn(primitive_out)
+            nvtx.end_range(range1)
+            prim_t1 = time.time()
+            print(f"Test {i + 1}/{num_tests} completed, time: {prim_t1 - prim_t0:.3f} seconds")
+
+        if self.is_training and self.dropout_prob > 0.0:
+            return
+
 
 @pytest.mark.parametrize(
     "attn_mask_type",
