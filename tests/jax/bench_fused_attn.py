@@ -84,6 +84,7 @@ def impl_test_context_parallel_attn(
 
     def check_has_backend_for_mask(mask_type):
         return is_fused_attn_kernel_available(
+            is_training,
             dtype,
             dtype,
             qkv_layout,
@@ -126,7 +127,7 @@ if __name__ == "__main__":
     mesh_resource = MeshResource(dp_resource="dp", cp_resource="cp", tp_resource="tp")
     # (batch, seqlen, num_head, hidden)
     # The actual sequence length will be scaled by 2 * CP size
-    data_shape = [16, 8192 // (2 * 8), 64, 128]
+    data_shape = [32, 16384 // (2 * 8), 64, 128]
     kv_groups = 1
     attn_mask_type = AttnMaskType.PADDING_CAUSAL_MASK
     dtype = jnp.bfloat16

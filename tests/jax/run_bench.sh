@@ -25,15 +25,14 @@ XLA_ENABLE_P2P_FLAGS="--xla_gpu_threshold_for_windowed_einsum_mib=0
 
 XLA_DISABLE_CUDA_GRAPH_FLAG="--xla_gpu_enable_command_buffer=\"\""
 
-export XLA_PYTHON_CLIENT_MEM_FRACTION=${XLA_MEM_FRAC}
+export XLA_PYTHON_CLIENT_MEM_FRACTION=${XLA_MEM_FRAC:=0.9}
 
 export XLA_FLAGS="${XLA_BASE_FLAGS}
                   ${XLA_HLO_DUMP_FLAGS}
-                  ${XLA_ENABLE_P2P_FLAGS}
-                  ${XLA_DISABLE_CUDA_GRAPH_FLAG}"
+                  ${XLA_ENABLE_P2P_FLAGS}"
 
-
-export TF_CPP_VMODULE=profile_guided_latency_estimator=10,latency_hiding_scheduler=10,gpu_hlo_module=10,collective_permute_thunk=10
+export JAX_ENABLE_PGLE=true
+export TF_CPP_VMODULE=profile_guided_latency_estimator=10,latency_hiding_scheduler=10,gpu_hlo_module=10
 export TF_CPP_MIN_LOG_LEVEL=0
 export TF_CPP_MAX_LOG_LEVEL=10
 
