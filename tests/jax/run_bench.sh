@@ -15,19 +15,23 @@ XLA_BASE_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true
                 --xla_ignore_channel_id=true
                 --xla_gpu_enable_nccl_comm_splitting=false"
 
-XLA_BASE_FLAGS="--xla_gpu_threshold_for_windowed_einsum_mib=0
-                --xla_gpu_multi_streamed_windowed_einsum=true
-                --xla_gpu_use_memcpy_local_p2p=true
-                ${XLA_BASE_FLAGS}"
+XLA_HLO_DUMP_FLAGS="--xla_dump_hlo_as_text
+                    --xla_dump_hlo_pass_re=.*
+                    --xla_dump_to=/tmp/hlo-dump"
+
+XLA_ENABLE_P2P_FLAGS="--xla_gpu_threshold_for_windowed_einsum_mib=0
+                      --xla_gpu_multi_streamed_windowed_einsum=true
+                      --xla_gpu_use_memcpy_local_p2p=true"
+
+XLA_DISABLE_CUDA_GRAPH_FLAG="--xla_gpu_enable_command_buffer=\"\""
 
 export XLA_PYTHON_CLIENT_MEM_FRACTION=${XLA_MEM_FRAC}
-export XLA_FLAGS="${XLA_BASE_FLAGS}"
 
-export XLA_FLAGS='--xla_dump_hlo_as_text
-                  --xla_dump_hlo_pass_re=.*
-                  --xla_dump_to=/tmp/hlo-dump
-                  --xla_gpu_enable_command_buffer=""
-                  ${XLA_FLAGS}'
+export XLA_FLAGS="${XLA_BASE_FLAGS}
+                  ${XLA_HLO_DUMP_FLAGS}
+                  ${XLA_ENABLE_P2P_FLAGS}
+                  ${XLA_DISABLE_CUDA_GRAPH_FLAG}"
+
 
 export TF_CPP_VMODULE=profile_guided_latency_estimator=10,latency_hiding_scheduler=10,gpu_hlo_module=10,collective_permute_thunk=10
 export TF_CPP_MIN_LOG_LEVEL=0
