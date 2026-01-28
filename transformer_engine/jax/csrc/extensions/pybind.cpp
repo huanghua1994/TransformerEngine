@@ -65,6 +65,9 @@ pybind11::dict Registrations() {
       pybind11::dict(pybind11::arg("prepare") = EncapsulateFFI(CublasHandleInitHandler),
                      pybind11::arg("execute") = EncapsulateFFI(GroupedGemmHandler));
 
+  // Cub Topk
+  dict["te_cub_topk_ffi"] = EncapsulateFFI(CubTopkHandler);
+
   return dict;
 }
 

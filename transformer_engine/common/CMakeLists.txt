@@ -45,6 +45,16 @@ if(NOT EXISTS "${CUDNN_FRONTEND_INCLUDE_DIR}")
 endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/cudnn-frontend/cmake/cuDNN.cmake)
 
+# CCCL (CUDA Core Compute Libraries)
+set(CCCL_INCLUDE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/cccl")
+if(NOT EXISTS "${CCCL_INCLUDE_DIR}")
+    message(FATAL_ERROR
+            "Could not find CCCL at ${CCCL_INCLUDE_DIR}. "
+            "Try running 'git submodule update --init --recursive' "
+            "within the Transformer Engine source.")
+endif()
+
 # Python
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
@@ -89,6 +99,7 @@ list(APPEND transformer_engine_SOURCES
      permutation/permutation.cu
      util/cast.cu
      util/padding.cu
+     util/cub.cu
      util/cuda_driver.cpp
      util/cuda_nvml.cpp
      util/cuda_runtime.cpp
@@ -122,6 +133,11 @@ target_link_libraries(transformer_engine PUBLIC
                       CUDNN::cudnn_all)
 target_include_directories(transformer_engine PRIVATE
                            ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+# Use CCCL from 3rdparty instead of the one from CUDA Toolkit
+target_include_directories(transformer_engine SYSTEM PRIVATE
+                           ${CCCL_INCLUDE_DIR}/thrust
+                           ${CCCL_INCLUDE_DIR}/cub
+                           ${CCCL_INCLUDE_DIR}/libcudacxx/include)
 target_include_directories(transformer_engine PRIVATE "${CUDNN_FRONTEND_INCLUDE_DIR}")
 
 # Compiling Userbuffers with native MPI bootstrapping requires linking against MPI

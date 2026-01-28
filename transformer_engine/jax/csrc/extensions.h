@@ -131,6 +131,9 @@ XLA_FFI_DECLARE_HANDLER_SYMBOL(CudnnHandleInitHandler);
 // CuBLAS helpers
 XLA_FFI_DECLARE_HANDLER_SYMBOL(CublasHandleInitHandler);
 
+// Cub Topk
+XLA_FFI_DECLARE_HANDLER_SYMBOL(CubTopkHandler);
+
 }  // namespace jax
 }  // namespace transformer_engine
 
