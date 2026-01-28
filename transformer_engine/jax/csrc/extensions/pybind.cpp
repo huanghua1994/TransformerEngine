@@ -81,6 +81,9 @@ pybind11::dict Registrations() {
       pybind11::arg("initialize") = EncapsulateFFI(RHTAmaxCalculationInitializeHandler),
       pybind11::arg("execute") = EncapsulateFFI(RHTAmaxCalculationHandler));
 
+  // Cub Topk
+  dict["te_cub_topk_ffi"] = EncapsulateFFI(CubTopkHandler);
+
   return dict;
 }
 
